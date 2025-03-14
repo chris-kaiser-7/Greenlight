@@ -15,11 +15,14 @@ import (
 
     "greenlight.chriskaiser.net/internal/data"
     "greenlight.chriskaiser.net/internal/mailer"
+    "greenlight.chriskaiser.net/internal/vcs"
 
     _ "github.com/lib/pq"
 )
 
-const version = "1.0.0"
+var (
+	version = vcs.Version()
+)
 
 type config struct {
     port int
