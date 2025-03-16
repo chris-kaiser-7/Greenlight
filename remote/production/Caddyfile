@@ -1,0 +1,8 @@
+{
+  email chris.a.kaiser.7@gmail.com
+}
+
+greenlight.typedex.dev {
+  respond /debug/* "Not Permitted" 403
+  reverse_proxy localhost:4000
+}
