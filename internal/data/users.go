@@ -212,6 +212,7 @@ func (m UserModel) GetForToken(tokenScope, tokenPlaintext string) (*User, error)
 		&user.Activated,
 		&user.Version,
 	)
+
 	if err != nil {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
@@ -220,6 +221,30 @@ func (m UserModel) GetForToken(tokenScope, tokenPlaintext string) (*User, error)
 			return nil, err
 		}
 	}
-
 	return &user, nil
+}
+
+func (m UserModel) DeleteByEmail(email string) error {
+	query := `
+        DELETE FROM movies
+        WHERE id = $1`
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	result, err := m.DB.ExecContext(ctx, query, email)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return ErrRecordNotFound
+	}
+
+	return nil
 }

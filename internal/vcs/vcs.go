@@ -5,10 +5,10 @@ import (
 )
 
 func Version() string {
-    bi, ok := debug.ReadBuildInfo()
-    if ok {
-        return bi.Main.Version
-    }
+	bi, ok := debug.ReadBuildInfo()
+	if ok {
+		return bi.Main.Version
+	}
 
-    return ""
+	return ""
 }

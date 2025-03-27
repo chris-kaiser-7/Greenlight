@@ -6,6 +6,7 @@ import (
 	"expvar"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"runtime"
@@ -51,11 +52,13 @@ type config struct {
 }
 
 type application struct {
-	config config
-	logger *slog.Logger
-	models data.Models
-	mailer *mailer.Mailer
-	wg     sync.WaitGroup
+	config      config
+	logger      *slog.Logger
+	models      data.Models
+	mailer      *mailer.Mailer
+	videoStream *data.Streamer
+	wg          sync.WaitGroup
+	rewriter    data.Rewriter
 }
 
 func main() {
@@ -110,6 +113,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	videoStreamer := &data.Streamer{}
+	rewriter := data.Rewriter{Writer: io.Discard}
+
 	expvar.NewString("version").Set(version)
 
 	expvar.Publish("goroutines", expvar.Func(func() any {
@@ -125,10 +131,12 @@ func main() {
 	}))
 
 	app := &application{
-		config: cfg,
-		logger: logger,
-		models: data.NewModels(db),
-		mailer: mailer,
+		config:      cfg,
+		logger:      logger,
+		models:      data.NewModels(db),
+		mailer:      mailer,
+		videoStream: videoStreamer,
+		rewriter:    rewriter,
 	}
 
 	err = app.serve()

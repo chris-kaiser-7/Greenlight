@@ -32,7 +32,7 @@ func (app *application) serve() error {
 
 		app.logger.Info("shutting down server.", "signal", s.String())
 
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 
 		err := srv.Shutdown(ctx)

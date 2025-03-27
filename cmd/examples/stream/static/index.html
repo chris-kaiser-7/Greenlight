@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>WebRTC Session</title>
+</head>
+<body>
+
+  Browser Session Description
+  <br/>
+  <textarea id="localSessionDescription" readonly="true"></textarea>
+  <br/>
+
+  <button onclick="window.copySessionDescription()">Copy browser Session Description to clipboard</button>
+
+  <br/><br/><br/>
+
+  Remote Session Description
+  <br/>
+  <textarea id="remoteSessionDescription"></textarea>
+  <br/>
+  <button onclick="window.startSession()">Start Session</button>
+  <br/><br/>
+
+  Video
+  <br/>
+  <div id="remoteVideos"></div>
+  <br/>
+
+  Logs
+  <br/>
+  <div id="div"></div>
+<script>
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+  });
+
+  const log = msg => {
+    document.getElementById('div').innerHTML += msg + '<br>';
+  };
+
+  pc.ontrack = function (event) {
+    const el = document.createElement(event.track.kind);
+    el.srcObject = event.streams[0];
+    el.autoplay = true;
+    el.controls = true;
+    document.getElementById('remoteVideos').appendChild(el);
+  };
+
+  pc.oniceconnectionstatechange = e => log(pc.iceConnectionState);
+
+  pc.onicecandidate = async event => {
+    if (event.candidate === null) {
+      const encoded = btoa(JSON.stringify(pc.localDescription));
+      document.getElementById('localSessionDescription').value = encoded;
+    }
+  };
+
+  pc.addTransceiver('video', { direction: 'sendrecv' });
+  pc.addTransceiver('audio', { direction: 'sendrecv' });
+
+  pc.createOffer()
+    .then(d => pc.setLocalDescription(d))
+    .catch(log);
+
+  window.startSession = async () => {
+    const encodedSD = document.getElementById('localSessionDescription').value;
+    if (encodedSD === '') {
+      return alert('Local Session Description not ready yet.');
+    }
+
+    try {
+      const response = await fetch('http://localhost:4000/v1/stream/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sdp: encodedSD })
+      });
+
+      if (!response.ok) {
+        throw new Error('Server returned: ' + response.statusText);
+      }
+
+      const data = await response.json();
+      const remoteSD = JSON.parse(atob(data.sdp)); // Assuming response is { sdp: "<base64 string>" }
+
+      await pc.setRemoteDescription(remoteSD);
+      log('Remote Session Description set successfully.');
+    } catch (e) {
+      alert('Failed to start session: ' + e.message);
+      log('Error: ' + e);
+    }
+  };
+
+  window.copySessionDescription = () => {
+    const browserSessionDescription = document.getElementById('localSessionDescription');
+    browserSessionDescription.focus();
+    browserSessionDescription.select();
+
+    try {
+      const successful = document.execCommand('copy');
+      const msg = successful ? 'successful' : 'unsuccessful';
+      log('Copying SessionDescription was ' + msg);
+    } catch (err) {
+      log('Oops, unable to copy SessionDescription ' + err);
+    }
+  };
+</script>
+  
+  
+</body>
+</html>
