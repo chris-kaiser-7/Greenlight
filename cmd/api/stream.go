@@ -33,7 +33,7 @@ func (app *application) serveStreamHandler(w http.ResponseWriter, r *http.Reques
 
 func (app *application) controlStreamHandler(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		string `json:"sdp"`
+		Ctrl string `json:"ctrl"`
 	}
 
 	err := app.readJSON(w, r, &input)
