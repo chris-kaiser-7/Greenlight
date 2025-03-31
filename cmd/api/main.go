@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/webrtc/v4"
 	"greenlight.chriskaiser.net/internal/data"
 	"greenlight.chriskaiser.net/internal/mailer"
 	"greenlight.chriskaiser.net/internal/vcs"
@@ -113,7 +114,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	videoStreamer := &data.Streamer{}
+	peerConfig := webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
+			{
+				URLs: []string{"stun:stun.l.google.com:19302"},
+			},
+		},
+	}
+	videoStreamer := &data.Streamer{PeerConnectionConfig: peerConfig}
+	videoStreamer.InitStream()
+
 	rewriter := data.Rewriter{Writer: io.Discard}
 
 	expvar.NewString("version").Set(version)

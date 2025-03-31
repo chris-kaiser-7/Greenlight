@@ -26,7 +26,7 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodGet, "/v1/videos/test", app.testVideoHandler)
 
 	router.HandlerFunc(http.MethodPost, "/v1/stream/join", app.serveStreamHandler)
-	router.HandlerFunc(http.MethodPost, "/v1/stream/start", app.controlStreamHandler)
+	router.HandlerFunc(http.MethodPost, "/v1/stream/control", app.controlStreamHandler)
 
 	router.HandlerFunc(http.MethodPost, "/v1/users", app.registerUserHandler)
 	router.HandlerFunc(http.MethodDelete, "/v1/users", app.requirePermission("users:delete", app.deleteUserHandler))

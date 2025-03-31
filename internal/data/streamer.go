@@ -10,28 +10,36 @@ import (
 	"os"
 	"time"
 
-	"github.com/pion/interceptor"
-	"github.com/pion/interceptor/pkg/intervalpli"
+	// "github.com/pion/interceptor"
+	// "github.com/pion/interceptor/pkg/intervalpli"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/pion/webrtc/v4/pkg/media/ivfreader"
 )
 
 const (
-	videoFileName = "internal/videos/output.ivf"
+	videoFileName1 = "internal/videos/output1.ivf"
+	videoFileName2 = "internal/videos/output3.ivf"
 )
 
 type Streamer struct {
 	clients              []SDPClient
-	peerConnectionConfig webrtc.Configuration
-	peerConnection       *webrtc.PeerConnection
-	track                *webrtc.TrackLocalStaticSample
+	PeerConnectionConfig webrtc.Configuration
+	readers              []ivfReader
+	rIndex               int
+	outTrack             *webrtc.TrackLocalStaticSample
+	outFrames            chan []byte
+	ticker               *time.Ticker //TODO: verify that a single ticker can work
+
+	// peerConnection       *webrtc.PeerConnection
+	// streamReader         *DynamicReader
+	mode uint8 //0 paused, 1 playing
 }
 
-type Track struct {
-	sample *webrtc.TrackLocalStaticSample
-	mode   uint8
-	ticker time.Ticker
+type ivfReader struct {
+	filename string
+	reader   *ivfreader.IVFReader
+	header   *ivfreader.IVFFileHeader
 }
 
 type SDPClient struct {
@@ -41,164 +49,124 @@ type SDPClient struct {
 }
 
 func (s *Streamer) InitStream() error {
+	//if at end of tracks wait for new track to be added
+	//set up call back or whatever to handle transitioning the track
+
+	// Asynchronously take all packets in the channel and write them out to our
+	// track
+
+	var videoTrackErr error
+	s.outTrack, videoTrackErr = webrtc.NewTrackLocalStaticSample(
+		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8}, "video", "pion",
+	)
+	if videoTrackErr != nil {
+		panic(videoTrackErr)
+	}
+
+	s.outFrames = make(chan []byte)
+	s.ticker = time.NewTicker(time.Second)
+	go func() {
+		for ; true; <-s.ticker.C {
+			if s.mode == 1 {
+				frame := <-s.outFrames
+				if ivfErr := s.outTrack.WriteSample(media.Sample{Data: frame, Duration: time.Second}); ivfErr != nil {
+					panic(ivfErr)
+				}
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			if len(s.readers) == 0 {
+				continue
+			}
+			curReader := &s.readers[s.rIndex]
+			frame, _, ivfErr := curReader.reader.ParseNextFrame() //TODO: research if you can put frames in memeory or something idk if this is the best
+			if errors.Is(ivfErr, io.EOF) {
+				fmt.Println("eof next track")
+				file, openErr := os.Open(curReader.filename)
+				if openErr != nil {
+					panic(openErr)
+				}
+				reader, header, openErr := ivfreader.NewWith(file)
+				if openErr != nil {
+					panic(openErr)
+				}
+				curReader.reader = reader
+				curReader.header = header
+
+				s.rIndex += 1
+				if s.rIndex >= len(s.readers) {
+					s.rIndex = 0
+				}
+				curReader = &s.readers[s.rIndex]
+				s.ticker = time.NewTicker(
+					time.Millisecond * time.Duration((float32(curReader.header.TimebaseNumerator)/
+						float32(curReader.header.TimebaseDenominator))*1000))
+
+			} else if ivfErr != nil {
+				panic(ivfErr)
+			} else {
+				s.outFrames <- frame
+			}
+		}
+	}()
 
 	return nil
 }
 
-// starts the stream. blocks untill error
-func (s *Streamer) StartStream() error {
-	// Assert that we have an audio or video file
+func (s *Streamer) AddToStream(n uint8) error {
+	//validation
+	var videoFileName string
+	if n == 0 {
+		videoFileName = videoFileName1
+	} else {
+		videoFileName = videoFileName2
+	}
 	_, err := os.Stat(videoFileName)
 	haveVideoFile := !errors.Is(err, fs.ErrNotExist)
-
 	if !haveVideoFile {
 		panic("Could not find `" + videoFileName + "`")
 	}
-
-	s.peerConnectionConfig = webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
-			},
-		},
-	}
-
-	mediaEngine := &webrtc.MediaEngine{}
-	if err := mediaEngine.RegisterDefaultCodecs(); err != nil {
-		panic(err)
-	}
-
-	interceptorRegistry := &interceptor.Registry{}
-
-	if err := webrtc.RegisterDefaultInterceptors(mediaEngine, interceptorRegistry); err != nil {
-		panic(err)
-	}
-
-	intervalPliFactory, err := intervalpli.NewReceiverInterceptor()
-	if err != nil {
-		panic(err)
-	}
-	interceptorRegistry.Add(intervalPliFactory)
-
-	s.peerConnection, err = webrtc.NewAPI(
-		webrtc.WithMediaEngine(mediaEngine),
-		webrtc.WithInterceptorRegistry(interceptorRegistry),
-	).NewPeerConnection(s.peerConnectionConfig)
-	if err != nil {
-		panic(err)
-	}
-	defer func() {
-		if cErr := s.peerConnection.Close(); cErr != nil {
-			fmt.Printf("cannot close peerConnection: %v\n", cErr)
-		}
-	}()
 
 	file, openErr := os.Open(videoFileName)
 	if openErr != nil {
 		panic(openErr)
 	}
 
-	ivf, header, openErr := ivfreader.NewWith(file)
+	reader, header, openErr := ivfreader.NewWith(file)
 	if openErr != nil {
 		panic(openErr)
 	}
 
-	var trackCodec string
-	switch header.FourCC {
-	case "AV01":
-		trackCodec = webrtc.MimeTypeAV1
-	case "VP90":
-		trackCodec = webrtc.MimeTypeVP9
-	case "VP80":
-		trackCodec = webrtc.MimeTypeVP8
-	default:
-		panic(fmt.Sprintf("Unable to handle FourCC %s", header.FourCC))
+	s.readers = append(s.readers, ivfReader{reader: reader, header: header, filename: videoFileName})
+
+	if len(s.readers) == 1 {
+		curReader := &s.readers[0]
+		s.ticker = time.NewTicker(
+			time.Millisecond * time.Duration(
+				(float32(curReader.header.TimebaseNumerator)/
+					float32(curReader.header.TimebaseDenominator))*1000))
 	}
 
-	// Create a video track
-	var videoTrackErr error
-	s.track, videoTrackErr = webrtc.NewTrackLocalStaticSample(
-		webrtc.RTPCodecCapability{MimeType: trackCodec}, "video", "pion",
-	)
-	if videoTrackErr != nil {
-		panic(videoTrackErr)
-	}
+	return nil
+}
 
-	rtpSender, videoTrackErr := s.peerConnection.AddTrack(s.track)
-	if videoTrackErr != nil {
-		panic(videoTrackErr)
-	}
+// TODO:
+// abstract the files being read
+// add files to que
+// starts the stream. blocks untill error
+func (s *Streamer) StartStream() error {
+	fmt.Println("starting stream")
+	s.mode = 1
 
-	readRTCP(rtpSender)
-
-	fmt.Println("starting routine")
-	go func() {
-		// TODO: test if this is ok to be commented out
-		//
-		// file, ivfErr := os.Open(videoFileName)
-		// if ivfErr != nil {
-		// 	panic(ivfErr)
-		// }
-		//
-		// ivf, header, ivfErr := ivfreader.NewWith(file)
-		// if ivfErr != nil {
-		// 	panic(ivfErr)
-		// }
-
-		//fmt.Println("waiting on ice")
-		//<-iceConnectedCtx.Done()
-
-		ticker := time.NewTicker(
-			time.Millisecond * time.Duration((float32(header.TimebaseNumerator)/float32(header.TimebaseDenominator))*1000), // LOOKAT
-		)
-		defer ticker.Stop()
-		for ; true; <-ticker.C {
-			frame, _, ivfErr := ivf.ParseNextFrame()
-			if errors.Is(ivfErr, io.EOF) {
-				fmt.Printf("All video frames parsed and sent")
-				os.Exit(0)
-			}
-
-			if ivfErr != nil {
-				panic(ivfErr)
-			}
-
-			if ivfErr = s.track.WriteSample(media.Sample{Data: frame, Duration: time.Second}); ivfErr != nil {
-				panic(ivfErr)
-			}
-		}
-	}()
-
-	// _, iceConnectedCtxCancel := context.WithCancel(context.Background())
-	// Set the handler for ICE connection state
-	// This will notify you when the peer has connected/disconnected
-	// peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
-	// 	fmt.Printf("Connection State has changed %s \n", connectionState.String())
-	// 	if connectionState == webrtc.ICEConnectionStateConnected {
-	// 		iceConnectedCtxCancel()
-	// 	}
-	// })
-
-	// Set the handler for Peer connection state
-	// This will notify you when the peer has connected/disconnected
-	s.peerConnection.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		fmt.Printf("Peer Connection State has changed: %s\n", state.String())
-
-		if state == webrtc.PeerConnectionStateFailed {
-			fmt.Println("Peer Connection has gone to failed exiting")
-			os.Exit(0)
-		}
-
-		if state == webrtc.PeerConnectionStateClosed {
-			fmt.Println("Peer Connection has gone to closed exiting")
-			os.Exit(0)
-		}
-	})
-
-	select {}
+	return nil
 }
 
 func (s *Streamer) PauseStream() error {
+	fmt.Println("pausing stream")
+	s.mode = 0
 
 	return nil
 }
@@ -207,22 +175,20 @@ func (s *Streamer) AddClient(sdp string) (string, error) {
 	recvOnlyOffer := webrtc.SessionDescription{}
 	decode(sdp, &recvOnlyOffer)
 
-	newClient := SDPClient{SDP: sdp}
-	fmt.Println("1")
+	s.clients = append(s.clients, SDPClient{SDP: sdp})
+	newClient := &s.clients[len(s.clients)-1]
 
 	// Create a new PeerConnection
 	var err error
-	newClient.peerConnection, err = webrtc.NewPeerConnection(s.peerConnectionConfig)
+	newClient.peerConnection, err = webrtc.NewPeerConnection(s.PeerConnectionConfig)
 	if err != nil {
 		return "", err
 	}
-	fmt.Println("2")
 
-	rtpSender, err := newClient.peerConnection.AddTrack(s.track) //FIXME: this depends on the stream to be started
+	rtpSender, err := newClient.peerConnection.AddTrack(s.outTrack)
 	if err != nil {
 		return "", err
 	}
-	fmt.Println("3")
 
 	readRTCP(rtpSender)
 
@@ -231,7 +197,6 @@ func (s *Streamer) AddClient(sdp string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	fmt.Println("2")
 
 	// Create answer
 	answer, err := newClient.peerConnection.CreateAnswer(nil) //2
@@ -248,17 +213,12 @@ func (s *Streamer) AddClient(sdp string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	fmt.Println("3")
-
-	s.clients = append(s.clients, newClient)
 
 	// Block until ICE Gathering is complete, disabling trickle ICE
 	// we do this because we only can exchange one signaling message
 	// in a production application you should exchange ICE Candidates via OnICECandidate
-	fmt.Println("ice wait")
 	<-gatherComplete //5
 	//<-iceConnectedCtx.Done()
-	fmt.Println("ice done")
 
 	// Get the LocalDescription and take it to base64 so we can paste in browser
 	newClient.LocalDescription = encode(newClient.peerConnection.LocalDescription())
