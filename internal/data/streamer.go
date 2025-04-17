@@ -81,6 +81,7 @@ func (s *Streamer) InitStream() error {
 			if len(s.readers) == 0 {
 				continue
 			}
+
 			curReader := &s.readers[s.rIndex]
 			frame, _, ivfErr := curReader.reader.ParseNextFrame() //TODO: research if you can put frames in memeory or something idk if this is the best
 			if errors.Is(ivfErr, io.EOF) {
@@ -95,7 +96,6 @@ func (s *Streamer) InitStream() error {
 				}
 				curReader.reader = reader
 				curReader.header = header
-
 				s.rIndex += 1
 				if s.rIndex >= len(s.readers) {
 					s.rIndex = 0
@@ -153,10 +153,6 @@ func (s *Streamer) AddToStream(n uint8) error {
 	return nil
 }
 
-// TODO:
-// abstract the files being read
-// add files to que
-// starts the stream. blocks untill error
 func (s *Streamer) StartStream() error {
 	fmt.Println("starting stream")
 	s.mode = 1
