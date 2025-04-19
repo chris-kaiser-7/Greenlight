@@ -21,7 +21,7 @@ confirm:
 ## run/api: run the cmd/api application
 .PHONY: run/api
 run/api:
-	go run ./cmd/api -db-dsn=${GREENLIGHT_DB_DSN} -cors-trusted-origins="http://localhost:8080"
+	GODEBUG=gotrace=1  go run -gcflags "-m=2" ./cmd/api -db-dsn=${GREENLIGHT_DB_DSN} -cors-trusted-origins="http://localhost:8080"
 
 ## db/psql: connect to the database using psql
 .PHONY: db/psql
@@ -75,9 +75,15 @@ audit:
 .PHONY: build/api
 build/api:
 	@echo 'Building cmd/api...'
-	go build -ldflags='-s' -o=./bin/api ./cmd/api
+	GOGC=10 go build -ldflags='-s' -o=./bin/api ./cmd/api 
 	GOOS=linux GOARCH=amd64 go build -ldflags='-s' -o=./bin/linux_amd64/api ./cmd/api
 
+## build/api: build the cmd/api application
+.PHONY: build/streamclient
+build/streamclient:
+	@echo 'Building cmd/examples/stream'
+	go build -ldflags='-s' -o=./bin/stream ./cmd/examples/stream
+	GOOS=linux GOARCH=amd64 go build -ldflags='-s' -o=./bin/linux_amd64/stream ./cmd/examples/stream
 
 # ==================================================================================== #
 # PRODUCTION
@@ -104,4 +110,16 @@ production/deploy/api:
 		&& sudo systemctl restart api \
 		&& sudo mv ~/Caddyfile /etc/caddy/ \
 		&& sudo systemctl reload caddy \
+	'
+
+## production/deploy/api: deploy the api to production
+.PHONY: production/deploy/streamclient
+production/deploy/streamclient:
+	rsync -P ./bin/linux_amd64/stream greenlight@${production_host_ip}:~
+	rsync -P ./remote/production/stream.service greenlight@${production_host_ip}:~
+	rsync -rP --delete ./static greenlight@${production_host_ip}:~
+	ssh -t greenlight@${production_host_ip} '\
+		sudo mv ~/stream.service /etc/systemd/system/ \
+		&& sudo systemctl enable stream \
+		&& sudo systemctl restart stream \
 	'
