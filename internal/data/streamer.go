@@ -57,18 +57,20 @@ type SDPClient struct {
 	id               uint
 }
 
-func (s *Streamer) InitStream() error {
-	//TODO: move to factory function
+func NewStreamer() (*Streamer, error) {
 
-	//if at end of tracks wait for new track to be added
-	//set up call back or whatever to handle transitioning the track
-
-	// Asynchronously take all packets in the channel and write them out to our
-	// track
-
-	s.closeStreamer = make(chan struct{})
-	s.delClientStream = make(chan uint)
-	s.clientStream = make(chan SDPClient)
+	s := Streamer{
+		closeStreamer:   make(chan struct{}),
+		delClientStream: make(chan uint),
+		clientStream:    make(chan SDPClient),
+		PeerConnectionConfig: webrtc.Configuration{
+			ICEServers: []webrtc.ICEServer{
+				{
+					URLs: []string{"stun:stun.l.google.com:19302"},
+				},
+			},
+		},
+	}
 
 	// routine for adding clients. routine cloes when s.closeStreamer closes
 	go func() {
@@ -78,6 +80,7 @@ func (s *Streamer) InitStream() error {
 			case newClient := <-s.clientStream:
 				s.clients = append(s.clients, newClient)
 				fmt.Println("adding client client len: ", len(s.clients))
+				fmt.Println()
 
 			case <-s.closeStreamer:
 				return
@@ -171,7 +174,7 @@ func (s *Streamer) InitStream() error {
 		}
 	}()
 
-	return nil
+	return &s, nil
 }
 
 func (s *Streamer) AddToStream(n uint8) error {

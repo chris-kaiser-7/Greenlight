@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/webrtc/v4"
 	"greenlight.chriskaiser.net/internal/data"
 	"greenlight.chriskaiser.net/internal/mailer"
 	"greenlight.chriskaiser.net/internal/vcs"
@@ -53,13 +52,13 @@ type config struct {
 }
 
 type application struct {
-	config      config
-	logger      *slog.Logger
-	models      data.Models
-	mailer      *mailer.Mailer
-	videoStream *data.Streamer
-	wg          sync.WaitGroup
-	rewriter    data.Rewriter
+	config       config
+	logger       *slog.Logger
+	models       data.Models
+	mailer       *mailer.Mailer
+	videoStreams []*data.Streamer //TODO: look at changing to value instead of refreance
+	wg           sync.WaitGroup
+	rewriter     data.Rewriter
 }
 
 func main() {
@@ -114,15 +113,32 @@ func main() {
 		os.Exit(1)
 	}
 
-	peerConfig := webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
-			},
-		},
+	videoStreams := make([]*data.Streamer, 0, 10)
+
+	videoStream_1, err := data.NewStreamer()
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
 	}
-	videoStreamer := &data.Streamer{PeerConnectionConfig: peerConfig}
-	videoStreamer.InitStream()
+	videoStream_1.AddToStream(0)
+	videoStreams = append(videoStreams, videoStream_1)
+
+	videoStream_2, err := data.NewStreamer()
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
+	}
+	videoStream_2.AddToStream(1)
+	videoStreams = append(videoStreams, videoStream_2)
+
+	videoStream_3, err := data.NewStreamer()
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
+	}
+	videoStream_3.AddToStream(0)
+	videoStream_3.AddToStream(1)
+	videoStreams = append(videoStreams, videoStream_3)
 
 	rewriter := data.Rewriter{Writer: io.Discard}
 
@@ -141,12 +157,12 @@ func main() {
 	}))
 
 	app := &application{
-		config:      cfg,
-		logger:      logger,
-		models:      data.NewModels(db),
-		mailer:      mailer,
-		videoStream: videoStreamer,
-		rewriter:    rewriter,
+		config:       cfg,
+		logger:       logger,
+		models:       data.NewModels(db),
+		mailer:       mailer,
+		videoStreams: videoStreams,
+		rewriter:     rewriter,
 	}
 
 	err = app.serve()

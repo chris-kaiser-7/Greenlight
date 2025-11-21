@@ -21,7 +21,7 @@ confirm:
 ## run/api: run the cmd/api application
 .PHONY: run/api
 run/api:
-	GODEBUG=gotrace=1  go run -gcflags "-m=2" ./cmd/api -db-dsn=${GREENLIGHT_DB_DSN} -cors-trusted-origins="http://localhost:8080"
+	go run ./cmd/api -db-dsn=${GREENLIGHT_DB_DSN} -cors-trusted-origins="http://localhost:8080"
 
 ## db/psql: connect to the database using psql
 .PHONY: db/psql
